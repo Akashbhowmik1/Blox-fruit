@@ -1,11 +1,9 @@
--- ========== AUTO EXECUTE SETUP ==========
 -- ========== AUTO RELOAD ==========
 local ScriptURL = "https://raw.githubusercontent.com/Akashbhowmik1/Blox-fruit/main/bloxfruit.lua"
 local queue_on_teleport = queue_on_teleport or syn and syn.queue_on_teleport or fluxus and fluxus.queue_on_teleport
 if queue_on_teleport then
     queue_on_teleport('loadstring(game:HttpGet("' .. ScriptURL .. '"))()')
 end
-
 
 -- ========== SERVICES ==========
 local HttpService = game:GetService("HttpService")
@@ -23,6 +21,8 @@ local ESPEnabled = false
 local ESPObjects = {}
 local ConfigFile = "FruitFarm_Settings.json"
 local StorageInProgress = false
+local FruitsProcessed = 0
+local TotalFruits = 0
 
 -- ========== FILE PERSISTENCE ==========
 local function SaveSettings()
@@ -99,16 +99,16 @@ farmBtn.TextSize = 14
 farmBtn.Parent = farmFrame
 Instance.new("UICorner", farmBtn).CornerRadius = UDim.new(0, 6)
 
--- Status Label
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(0, 180, 0, 20)
-statusLabel.Position = UDim2.new(0, 10, 0, 250)
-statusLabel.BackgroundTransparency = 1
-statusLabel.Text = "Status: Ready"
-statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-statusLabel.Font = Enum.Font.Gotham
-statusLabel.TextSize = 12
-statusLabel.Parent = gui
+-- Progress Label
+local progressLabel = Instance.new("TextLabel")
+progressLabel.Size = UDim2.new(0, 180, 0, 20)
+progressLabel.Position = UDim2.new(0, 10, 0, 250)
+progressLabel.BackgroundTransparency = 1
+progressLabel.Text = "Ready"
+progressLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+progressLabel.Font = Enum.Font.Gotham
+progressLabel.TextSize = 12
+progressLabel.Parent = gui
 
 -- ========== BUTTON FUNCTIONS ==========
 closeBtn.MouseButton1Click:Connect(function()
@@ -270,136 +270,141 @@ local function flyTo(pos)
 	end
 end
 
-local function tapScreen(x, y)
+local function tap(x, y)
 	VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
-	task.wait(0.05)
+	task.wait(0.1)
 	VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
 end
 
--- ========== FIXED STORE FUNCTIONS ==========
-local function findAndClickButton(buttonName, searchText)
+-- ========== MACRO-STYLE STORAGE ==========
+local function getScreenCenter()
+	local size = workspace.CurrentCamera.ViewportSize
+	return size.X / 2, size.Y / 2
+end
+
+local function clickButtonByText(textToFind)
 	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
 	if not playerGui then return false end
 	
-	-- Search by name first
 	for _, gui in pairs(playerGui:GetDescendants()) do
-		if gui:IsA("TextButton") or gui:IsA("ImageButton") then
-			if gui.Visible then
-				local name = string.lower(gui.Name)
-				if name:find(string.lower(buttonName)) then
-					pcall(function()
-						gui.MouseButton1Click:Fire()
-					end)
-					return true
-				end
+		if gui:IsA("TextButton") and gui.Visible then
+			if string.lower(gui.Text) == string.lower(textToFind) then
+				local pos = gui.AbsolutePosition
+				local size = gui.AbsoluteSize
+				local clickX = pos.X + size.X/2
+				local clickY = pos.Y + size.Y/2
+				tap(clickX, clickY)
+				return true
 			end
 		end
 	end
-	
-	-- Search by text content
-	if searchText then
-		for _, gui in pairs(playerGui:GetDescendants()) do
-			if gui:IsA("TextButton") and gui.Visible then
-				local text = string.lower(gui.Text)
-				if text:find(string.lower(searchText)) then
-					pcall(function()
-						gui.MouseButton1Click:Fire()
-					end)
-					return true
-				end
-			end
-		end
-	end
-	
 	return false
 end
 
-local function closeFruitMenu()
-	-- Try to find Nevermind/Close button
-	if findAndClickButton("nevermind", "nevermind") then return true end
-	if findAndClickButton("close", "close") then return true end
-	if findAndClickButton("cancel", "cancel") then return true end
+local function isMenuOpen()
+	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+	if not playerGui then return false end
 	
-	-- Tap center to close menu
-	local screenSize = workspace.CurrentCamera.ViewportSize
-	tapScreen(screenSize.X / 2, screenSize.Y / 2)
-	return true
+	-- Check for menu text
+	for _, gui in pairs(playerGui:GetDescendants()) do
+		if gui:IsA("TextLabel") and gui.Visible then
+			local text = string.lower(gui.Text)
+			if text:find("what do you wish") or text:find("blox fruit") then
+				return true
+			end
+		end
+	end
+	return false
 end
 
-local function attemptStoreFruit(fruitName)
-	local backpack = LocalPlayer:FindFirstChild("Backpack")
-	local character = LocalPlayer.Character
-	local hum = character and character:FindFirstChild("Humanoid")
+local function isStorageFullDialog()
+	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+	if not playerGui then return false end
 	
+	for _, gui in pairs(playerGui:GetDescendants()) do
+		if gui:IsA("TextLabel") and gui.Visible then
+			local text = string.lower(gui.Text)
+			if text:find("storage full") or text:find("would you like to purchase") then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local function storeFruitMacro(fruitName)
+	local backpack = LocalPlayer:FindFirstChild("Backpack")
+	local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
 	if not backpack or not hum then return false end
 	
-	-- Check if fruit exists
 	local fruit = backpack:FindFirstChild(fruitName)
 	if not fruit then return true end -- Already stored
 	
-	print("[Storage] Storing: " .. fruitName)
-	
-	-- Step 1: Equip the fruit
+	print("[Macro] Step 1: Equipping " .. fruitName)
+	progressLabel.Text = string.format("Step 1/5: Equipping %s", fruitName)
 	hum:EquipTool(fruit)
+	task.wait(1)
+	
+	-- Step 2: Open menu (tap center)
+	print("[Macro] Step 2: Opening menu")
+	progressLabel.Text = "Step 2/5: Opening menu"
+	local cx, cy = getScreenCenter()
+	tap(cx, cy)
 	task.wait(0.8)
 	
-	-- Step 2: Open radial menu (tap center)
-	local screenSize = workspace.CurrentCamera.ViewportSize
-	local cx, cy = screenSize.X / 2, screenSize.Y / 2
-	tapScreen(cx, cy)
-	task.wait(0.7)
+	-- Step 3: Click Store button (based on your screenshot, Store is the 3rd option)
+	-- In Blox Fruits radial menu: Eat(top), Drop(right), Store(bottom), Nevermind(left)
+	-- Actually from screenshot: Eat, Drop, Store, Nevermind - Store appears to be below center
+	print("[Macro] Step 3: Clicking Store")
+	progressLabel.Text = "Step 3/5: Clicking Store"
 	
-	-- Step 3: Try to click Store button (multiple methods)
-	local storeClicked = false
+	-- Try clicking by text first
+	if not clickButtonByText("Store") then
+		-- Store appears to be below center based on screenshot
+		tap(cx, cy + 80)
+	end
+	task.wait(1)
 	
-	-- Method 1: Find by name
-	if findAndClickButton("store", nil) then
-		storeClicked = true
-	elseif findAndClickButton("storebutton", nil) then
-		storeClicked = true
-	else
-		-- Method 2: Tap right side where Store usually is (3 o'clock position)
-		tapScreen(cx + 120, cy)
-		storeClicked = true
+	-- Step 4: Check if Storage Full dialog appeared
+	if isStorageFullDialog() then
+		print("[Macro] Storage full dialog detected")
+		progressLabel.Text = "Step 4/5: Storage full, clicking Nevermind"
+		clickButtonByText("Nevermind")
+		task.wait(0.5)
+		return false -- Failed to store
 	end
 	
-	task.wait(0.8) -- Wait for storage to process
+	-- Step 5: Verify storage by checking if fruit is gone
+	task.wait(0.5)
+	local stillThere = backpack:FindFirstChild(fruitName)
 	
-	-- Step 4: Close the menu
-	closeFruitMenu()
-	task.wait(0.4)
-	
-	-- Step 5: VERIFY - Check if fruit is still in backpack
-	local stillInBackpack = backpack:FindFirstChild(fruitName)
-	
-	if stillInBackpack then
-		-- UI method failed, try remote method
-		print("[Storage] UI failed, trying remote...")
-		local success = pcall(function()
-			-- Try the Blox Fruits store remote
+	if stillThere then
+		-- Try remote method
+		print("[Macro] Trying remote method...")
+		pcall(function()
 			ReplicatedStorage.Remotes.CommF_:InvokeServer("StoreFruit", fruitName)
 		end)
+		task.wait(0.8)
+		stillThere = backpack:FindFirstChild(fruitName)
 		
-		task.wait(0.6)
-		
-		-- Check again
-		stillInBackpack = backpack:FindFirstChild(fruitName)
-		
-		if stillInBackpack then
-			print("[Storage] FAILED: " .. fruitName .. " (Storage Full or Error)")
+		if stillThere then
+			-- Close menu and return fail
+			tap(cx, cy)
+			task.wait(0.3)
+			clickButtonByText("Nevermind")
 			return false
-		else
-			print("[Storage] SUCCESS (Remote): " .. fruitName)
-			return true
 		end
-	else
-		print("[Storage] SUCCESS (UI): " .. fruitName)
-		return true
 	end
+	
+	print("[Macro] Successfully stored " .. fruitName)
+	progressLabel.Text = "Step 5/5: Stored!"
+	return true
 end
 
 local function storeAllFruits()
 	StorageInProgress = true
+	FruitsProcessed = 0
+	
 	local backpack = LocalPlayer:FindFirstChild("Backpack")
 	if not backpack then 
 		StorageInProgress = false
@@ -414,13 +419,14 @@ local function storeAllFruits()
 		end
 	end
 	
-	if #fruits == 0 then
+	TotalFruits = #fruits
+	if TotalFruits == 0 then
 		print("[Storage] No fruits to store")
 		StorageInProgress = false
 		return
 	end
 	
-	print("[Storage] Found " .. #fruits .. " fruits")
+	print(string.format("[Storage] Starting macro for %d fruits", TotalFruits))
 	
 	local stored = 0
 	local failed = 0
@@ -431,19 +437,21 @@ local function storeAllFruits()
 			return 
 		end
 		
-		statusLabel.Text = string.format("Storing %d/%d: %s", i, #fruits, fruit.Name)
+		FruitsProcessed = i
+		print(string.format("[Storage] Processing %d/%d: %s", i, TotalFruits, fruit.Name))
 		
-		local success = attemptStoreFruit(fruit.Name)
+		local success = storeFruitMacro(fruit.Name)
 		if success then
 			stored = stored + 1
 		else
 			failed = failed + 1
+			print(string.format("[Storage] Failed to store %s (storage full or error)", fruit.Name))
 		end
 		
-		task.wait(0.8) -- Delay between fruits
+		task.wait(1) -- Delay between fruits
 	end
 	
-	-- Final count
+	-- Final verification
 	local remaining = 0
 	for _, item in pairs(backpack:GetChildren()) do
 		if item:IsA("Tool") and string.lower(item.Name):find("fruit") then
@@ -451,7 +459,7 @@ local function storeAllFruits()
 		end
 	end
 	
-	statusLabel.Text = string.format("Done! Stored:%d Failed:%d", stored, failed)
+	progressLabel.Text = string.format("Done! Stored:%d Failed:%d", stored, failed)
 	print(string.format("[Storage] Complete! Stored:%d Failed:%d Remaining:%d", stored, failed, remaining))
 	StorageInProgress = false
 end
@@ -463,7 +471,7 @@ local function collectWorldFruits()
 		if IsFruit(obj) then
 			local handle = obj:FindFirstChild("Handle")
 			if handle then
-				statusLabel.Text = "Collecting: " .. obj.Name
+				progressLabel.Text = "Collecting: " .. obj.Name
 				flyTo(handle.Position)
 				pcall(function()
 					local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
@@ -478,21 +486,28 @@ end
 -- ========== MAIN LOOP ==========
 task.spawn(function()
 	while Running do
-		task.wait(3)
+		task.wait(2)
 		if not Running then break end
 		if not AutoFarmEnabled then continue end
-		if StorageInProgress then continue end
+		if StorageInProgress then 
+			progressLabel.Text = string.format("Storing... %d/%d", FruitsProcessed, TotalFruits)
+			continue 
+		end
 		
-		-- Step 1: Collect all world fruits
+		-- Step 1: Collect
 		collectWorldFruits()
 		
-		-- Step 2: Store all fruits (this blocks until done)
+		-- Step 2: Store all
 		storeAllFruits()
 		
-		-- Step 3: Extra wait to ensure storage fully completes
-		task.wait(2)
+		-- Step 3: Wait for completion
+		while StorageInProgress do
+			task.wait(0.5)
+		end
 		
-		-- Step 4: Check if any fruits still in world
+		task.wait(1)
+		
+		-- Step 4: Check world fruits
 		local hasWorldFruit = false
 		for _, obj in pairs(workspace:GetChildren()) do
 			if IsFruit(obj) then
@@ -501,13 +516,14 @@ task.spawn(function()
 			end
 		end
 		
-		-- Step 5: Only teleport if world is clear AND storage is done
+		-- Step 5: Teleport if done
 		if not hasWorldFruit and not StorageInProgress then
-			print("[Auto Farm] All done! Teleporting to First Sea...")
+			print("[Auto Farm] Complete! Teleporting...")
+			progressLabel.Text = "Teleporting..."
 			task.wait(2)
 			TeleportService:Teleport(2753915549)
 		end
 	end
 end)
 
-print("[Script] Loaded - Fruit Storage Fixed")
+print("[Script] Loaded - Macro Style Storage")
