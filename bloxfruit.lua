@@ -1,11 +1,11 @@
 -- ========== AUTO EXECUTE SETUP ==========
+-- ========== AUTO RELOAD ==========
 local ScriptURL = "https://raw.githubusercontent.com/Akashbhowmik1/Blox-fruit/main/bloxfruit.lua"
-
-local queue_on_teleport = queue_on_teleport or syn and syn.queue_on_teleport or fluxus and fluxus.queue_on_teleport or getexecutorname and (getexecutorname():find("Krnl") and queue_on_teleport)
-if queue_on_teleport and ScriptURL ~= "https://raw.githubusercontent.com/Akashbhowmik1/Blox-fruit/main/bloxfruit.lua" then
+local queue_on_teleport = queue_on_teleport or syn and syn.queue_on_teleport or fluxus and fluxus.queue_on_teleport
+if queue_on_teleport then
     queue_on_teleport('loadstring(game:HttpGet("' .. ScriptURL .. '"))()')
-    print("[Auto Execute] Queued for next server")
 end
+
 
 -- ========== SERVICES ==========
 local HttpService = game:GetService("HttpService")
